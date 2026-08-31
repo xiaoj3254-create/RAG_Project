@@ -1,0 +1,28 @@
+# RAG 秋招完整项目依赖清单
+# 说明：版本使用主版本约束，安装时以 pip 实际可解析的稳定版为准。
+
+# ---- 基础 ----
+python-dotenv>=1.0
+PyPDF2>=3.0
+requests>=2.32
+
+# ---- 后端 / 前端 ----
+fastapi>=0.100
+uvicorn>=0.23
+streamlit>=1.30
+
+# ---- LangChain 全家桶 ----
+langchain>=0.3
+langchain-core>=0.3
+langchain-community>=0.3
+langchain-text-splitters>=0.3
+langchain-openai>=0.2
+langchain-groq>=0.2
+langgraph>=0.2
+
+# ---- 向量库 ----
+langchain-chroma>=0.1
+chromadb>=0.5
+
+# ---- 重排（重型依赖，含 torch；安装失败时程序自动降级跳过重排）----
+sentence-transformers>=3.0

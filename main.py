@@ -1,0 +1,945 @@
+"""
+RAG 检索增强生成系统 - 完整实现（秋招升级版）
+
+本模块实现了生产级别的 RAG 系统，包括：
+- 文档加载和处理（支持 Chroma 磁盘持久化）
+- 向量存储和检索（Multi-Query 多路召回 + Cross-Encoder 重排）
+- 上下文感知的问答生成（幻觉自检 + LangGraph 条件分支重试）
+- 来源引用和置信度评估
+
+⚠️ Embeddings 说明：
+- 默认使用简单的 Fake Embeddings（用于演示）
+- 如需高质量结果，请设置 OPENAI_API_KEY 使用 OpenAI Embeddings
+- 使用 SimpleEmbeddings 时程序会打印警告，生产环境必须配置真实 Embedding
+
+⚠️ LLM 说明：
+- 优先使用 Groq（llama-3.3-70b）：未配置密钥时自动进入演示降级模式
+- 降级模式下仍可跑通检索、来源、子查询、重排、幻觉校验全流程
+"""
+
+from typing import List, Dict, Any, Optional, TypedDict, Literal
+from dataclasses import dataclass
+
+import config
+from dotenv import load_dotenv
+
+# LangChain 核心导入
+from langchain.chat_models import init_chat_model
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.documents import Document
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from langchain_core.embeddings import Embeddings
+
+# 文本处理
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# 向量存储（Chroma 在 DocumentProcessor 中懒加载；此兜底用于安装失败时降级）
+from langchain_core.vectorstores import InMemoryVectorStore
+
+# LangGraph
+from langgraph.graph import StateGraph, START, END
+
+# 项目内部模块
+from utils.logger import setup_logger
+from utils import file_loader, reranker_helper
+
+logger = setup_logger("rag")
+
+# 加载环境变量（密钥校验后移到 get_groq_model，无密钥时进入降级模式）
+load_dotenv()
+
+
+# 初始化 Groq 模型（懒加载单例：生成/改写/多查询/幻觉检测共用同一实例）
+_model: Any = None
+
+
+def get_groq_model():
+    """懒加载 Groq LLM 单例；无有效密钥时抛出 ValueError。"""
+    global _model
+    if _model is None:
+        if not config.GROQ_API_KEY or config.GROQ_API_KEY.startswith("your_"):
+            raise ValueError("未设置有效的 GROQ_API_KEY")
+        _model = init_chat_model(config.GROQ_MODEL, api_key=config.GROQ_API_KEY)
+    return _model
+
+
+# ==================== 简单 Embeddings（用于演示）====================
+
+class SimpleEmbeddings(Embeddings):
+    """
+    简单的 Embeddings 实现（用于演示）
+
+    使用简单的文本哈希生成确定性伪随机向量，适合演示目的。
+    生产环境请使用 OpenAI 或 HuggingFace Embeddings。
+    """
+
+    def __init__(self, dimension: int = 384):
+        self.dimension = dimension
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """嵌入文档列表"""
+        return [self._embed_text(text) for text in texts]
+
+    def embed_query(self, text: str) -> List[float]:
+        """嵌入查询"""
+        return self._embed_text(text)
+
+    def _embed_text(self, text: str) -> List[float]:
+        """简单的文本嵌入（基于字符哈希）"""
+        import hashlib
+        # 使用文本的hash生成伪随机但确定的向量
+        hash_obj = hashlib.md5(text.encode())
+        hash_bytes = hash_obj.digest()
+
+        # 扩展到目标维度
+        vector = []
+        for i in range(self.dimension):
+            byte_idx = i % len(hash_bytes)
+            # 归一化到 [-1, 1]
+            value = (hash_bytes[byte_idx] / 255.0) * 2 - 1
+            vector.append(value)
+
+        return vector
+
+
+# 选择 Embeddings
+def get_embeddings():
+    """根据环境选择合适的 Embeddings"""
+    if config.OPENAI_API_KEY and config.OPENAI_API_KEY != "your_openai_api_key_here":
+        try:
+            from langchain_openai import OpenAIEmbeddings
+            logger.info("使用 OpenAI Embeddings: %s", config.OPENAI_EMBEDDING_MODEL)
+            return OpenAIEmbeddings(model=config.OPENAI_EMBEDDING_MODEL)
+        except ImportError:
+            logger.warning("langchain_openai 未安装，使用简单 Embeddings")
+
+    # 兜底演示：必须打印生产警告
+    logger.warning(
+        "⚠️ 未检测到有效的 OPENAI_API_KEY，使用 SimpleEmbeddings 兜底演示。"
+        "生产环境必须配置真实 Embedding，否则检索质量无法保证！"
+    )
+    return SimpleEmbeddings()
+
+
+# ==================== 配置类 ====================
+
+@dataclass
+class RAGConfig:
+    """RAG 系统配置（默认值全部来自 config 模块）"""
+
+    # 模型配置
+    temperature: float = config.TEMPERATURE
+
+    # 分块配置
+    chunk_size: int = config.CHUNK_SIZE
+    chunk_overlap: int = config.CHUNK_OVERLAP
+
+    # 检索配置
+    top_k: int = config.TOP_K
+    search_type: str = "similarity"  # similarity, mmr
+
+    # 生成配置
+    max_tokens: int = config.MAX_TOKENS
+
+    # 幻觉重试（防死循环）
+    max_retry: int = config.MAX_RETRY
+
+    # 功能开关
+    enable_multi_query: bool = config.ENABLE_MULTI_QUERY
+    enable_reranker: bool = config.ENABLE_RERANKER
+    multi_query_num: int = config.MULTI_QUERY_NUM
+    reranker_model_name: str = config.RERANKER_MODEL_NAME
+
+
+# ==================== 状态定义 ====================
+
+class RAGState(TypedDict):
+    """RAG 流程状态"""
+    query: str                          # 用户查询（含改写结果）
+    chat_history: List[Dict[str, str]]  # 对话历史
+    documents: List[Document]           # 检索到的文档
+    context: str                        # 格式化的上下文
+    answer: str                         # 生成的回答
+    sources: List[Dict[str, Any]]       # 来源信息
+    confidence: float                   # 置信度评分
+    # ---- 新增字段 ----
+    sub_queries: List[str]              # multi-query 生成的子查询
+    rerank_scores: List[Dict[str, Any]] # 重排打分明细（供调试面板）
+    is_hallucination: bool              # 幻觉校验结果
+    retry_count: int                    # 已重试次数
+    rewritten_query: str                # 改写后的查询（供调试面板）
+    hallucination_feedback: str         # 幻觉重试时的纠偏反馈（供 generate 节点使用）
+
+
+# ==================== 文档处理模块 ====================
+
+class DocumentProcessor:
+    """文档处理器：加载、分块、向量化（Chroma 磁盘持久化）"""
+
+    def __init__(self, config: RAGConfig):
+        self.config = config
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=config.chunk_size,
+            chunk_overlap=config.chunk_overlap,
+            separators=["\n\n", "\n", "。", "！", "？", ".", "!", "?", " ", ""]
+        )
+        self.embeddings = get_embeddings()  # 使用智能选择的 Embeddings
+        self.vector_store = None
+        self._create_vector_store()  # 启动即创建/加载一次，避免重复实例化
+
+    def _create_vector_store(self) -> None:
+        """创建 Chroma 持久化向量库（加载已有数据，不重建）；失败回退内存向量库。"""
+        try:
+            from langchain_chroma import Chroma
+            self.vector_store = Chroma(
+                collection_name="rag_docs",
+                embedding_function=self.embeddings,
+                persist_directory=config.CHROMA_DB_PATH,
+            )
+            logger.info("Chroma 向量库就绪: %s", config.CHROMA_DB_PATH)
+            # 启动即校验：持久化向量维度与当前 Embedding 是否一致
+            self._check_embedding_compatibility()
+        except Exception as e:
+            # Chroma 安装失败/初始化异常时降级为内存向量库，保证演示可跑通
+            logger.warning("⚠️ Chroma 初始化失败，回退 InMemoryVectorStore（无持久化）: %s", e)
+            self.vector_store = InMemoryVectorStore(self.embeddings)
+
+    def _check_embedding_compatibility(self) -> None:
+        """检测已持久化向量维度与当前 Embedding 是否一致。
+
+        常见踩坑：先用 SimpleEmbeddings(384 维) 写入 Chroma，之后配置 OPENAI_API_KEY
+        重启后改用 OpenAIEmbeddings(1536 维)。维度不一致会导致每次检索都报错，
+        而检索节点会静默吞掉异常返回空结果——表现为"什么都搜不到"，极难排查。
+        这里显式检测并在日志中大声警告；同时清空该 collection，让新上传的文档
+        以新维度重建索引（向量只是派生数据，源文档仍在，重新上传即可恢复）。
+        """
+        store = getattr(self.vector_store, "_collection", None)
+        if store is None:
+            return  # 内存向量库无持久化数据，跳过
+
+        try:
+            if store.count() == 0:
+                return
+            existing = store.get(include=["embeddings"], limit=1)["embeddings"]
+            if not existing:
+                return
+            stored_dim = len(existing[0])
+            current_dim = len(self.embeddings.embed_query("维度探测"))
+            if stored_dim == current_dim:
+                return
+
+            logger.error(
+                "⚠️ Embedding 维度不兼容：库中已有的向量维度为 %d，当前 Embedding 生成 %d 维。"
+                "这是简单Embedding与OpenAI Embedding切换导致的。为防止检索静默失效，"
+                "已清空 collection 'rag_docs'，请重新上传文档建立索引。",
+                stored_dim, current_dim,
+            )
+            ids = store.get(include=[])["ids"]
+            for i in range(0, len(ids), 1000):
+                store.delete(ids=ids[i:i + 1000])
+            logger.warning("已清空旧向量 %d 条，collection 将用新维度重新索引。", len(ids))
+        except Exception as e:
+            logger.warning("Embedding 兼容性自检失败，跳过: %s", e)
+
+    def load_documents(self, texts: List[str], metadatas: Optional[List[Dict]] = None) -> List[Document]:
+        """从文本创建文档"""
+        documents = []
+        for i, text in enumerate(texts):
+            metadata = metadatas[i] if metadatas and i < len(metadatas) else {"source": f"doc_{i}"}
+            documents.append(Document(page_content=text, metadata=metadata))
+        return documents
+
+    def rebuild_text_splitter(self) -> None:
+        """按当前 config 的 chunk_size/chunk_overlap 重建 text_splitter。
+
+        前端通过 API 覆盖 chunk 参数后调用，否则改 config 不生效（原 splitter 存的是初始值）。
+        """
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self.config.chunk_size,
+            chunk_overlap=self.config.chunk_overlap,
+            separators=["\n\n", "\n", "。", "！", "？", ".", "!", "?", " ", ""]
+        )
+        logger.info("已按 chunk_size=%s / chunk_overlap=%s 重建 text_splitter",
+                    self.config.chunk_size, self.config.chunk_overlap)
+
+    def split_documents(self, documents: List[Document]) -> List[Document]:
+        """分割文档为小块"""
+        return self.text_splitter.split_documents(documents)
+
+    def create_vector_store(self, documents: List[Document]):
+        """向已存在的向量存储追加文档（不新建实例，防重复实例化）"""
+        if documents:
+            self.vector_store.add_documents(documents)
+        return self.vector_store
+
+    def process(self, texts: List[str], metadatas: Optional[List[Dict]] = None):
+        """完整处理流程：加载 -> 分块 -> 追加向量化"""
+        logger.info("加载文档...")
+        documents = self.load_documents(texts, metadatas)
+        logger.info("加载了 %d 个文档", len(documents))
+
+        logger.info("分割文档...")
+        chunks = self.split_documents(documents)
+        logger.info("生成了 %d 个文本块", len(chunks))
+
+        logger.info("写入向量存储...")
+        vector_store = self.create_vector_store(chunks)
+        logger.info("向量存储更新完成")
+        return vector_store
+
+    def process_paths(self, paths: List[str]) -> int:
+        """文件路径入口：解析文件 -> 分块 -> 追加向量化，返回 chunk 数。"""
+        docs = file_loader.load_files(paths)
+        if not docs:
+            logger.warning("没有成功解析到任何文件")
+            return 0
+        chunks = self.split_documents(docs)
+        self.create_vector_store(chunks)
+        logger.info("已索引 %d 个文件，共 %d 个文本块", len(docs), len(chunks))
+        return len(chunks)
+
+
+# ==================== 检索模块 ====================
+
+class Retriever:
+    """检索器：从向量存储中检索相关文档（支持单路与多路召回）"""
+
+    def __init__(self, vector_store, config: RAGConfig):
+        self.vector_store = vector_store
+        self.config = config
+
+    def retrieve(self, query: str) -> List[Document]:
+        """单路检索"""
+        return self.vector_store.similarity_search(
+            query=query,
+            k=self.config.top_k
+        )
+
+    def retrieve_multi(self, queries: List[str]) -> List[Document]:
+        """多查询召回：逐条检索，按内容去重合并（适度扩容候选供重排筛选）"""
+        seen = set()
+        merged: List[Document] = []
+        for q in queries:
+            for doc in self.vector_store.similarity_search(query=q, k=self.config.top_k):
+                if doc.page_content not in seen:
+                    seen.add(doc.page_content)
+                    merged.append(doc)
+            # 候选足够多时提前终止，避免无意义检索
+            if len(merged) >= self.config.top_k * 3:
+                break
+        return merged
+
+    def retrieve_with_scores(self, query: str) -> List[tuple]:
+        """检索文档并返回相似度分数"""
+        return self.vector_store.similarity_search_with_score(
+            query=query,
+            k=self.config.top_k
+        )
+
+
+# ==================== 生成模块 ====================
+
+class Generator:
+    """生成器：基于上下文生成回答（含查询改写、置信度、幻觉检测）"""
+
+    def __init__(self, config: RAGConfig):
+        self.config = config
+        self.llm: Any = None  # 懒加载 Groq 模型，无密钥时保持 None 进入降级模式
+
+        # RAG 提示模板
+        self.rag_prompt = ChatPromptTemplate.from_messages([
+            ("system", """你是一个专业的问答助手。请基于提供的上下文信息回答用户的问题。
+
+重要规则：
+1. 只使用提供的上下文信息来回答问题
+2. 如果上下文中没有相关信息，请诚实地说"根据提供的信息，我无法回答这个问题"
+3. 回答要准确、简洁、有条理
+4. 在回答末尾标注信息来源
+
+上下文信息：
+{context}
+"""),
+            MessagesPlaceholder(variable_name="chat_history", optional=True),
+            ("human", "{query}")
+        ])
+
+        # 查询改写提示
+        self.rewrite_prompt = ChatPromptTemplate.from_messages([
+            ("system", """你是一个查询优化专家。请根据对话历史，将用户的问题改写为一个独立、完整的查询。
+
+如果问题本身已经很清晰完整，直接返回原问题。
+只返回改写后的查询，不要添加任何解释。"""),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "原始问题：{query}\n\n请改写为独立完整的查询：")
+        ])
+
+        # 幻觉检测提示
+        self.hallucination_prompt = ChatPromptTemplate.from_messages([
+            ("system", """你是幻觉检测器。请判断"回答"是否与"上下文"冲突，或者编造了上下文中不存在的内容。
+只输出 JSON：{"is_hallucination": true/false, "reason": "简短理由"}"""),
+            ("human", """上下文：{context}
+
+问题：{query}
+
+回答：{answer}""")
+        ])
+
+    def _llm_available(self) -> bool:
+        """判断是否有可用的 Groq LLM（无密钥时进入降级模式）。"""
+        return bool(config.GROQ_API_KEY) and not config.GROQ_API_KEY.startswith("your_")
+
+    def _get_llm(self):
+        """懒加载获取 LLM 实例（单例）。"""
+        if not self._llm_available():
+            raise RuntimeError("未配置有效的 GROQ_API_KEY，无法调用 LLM")
+        if self.llm is None:
+            self.llm = get_groq_model()
+        return self.llm
+
+    def rewrite_query(self, query: str, chat_history: List[Dict[str, str]]) -> str:
+        """根据对话历史改写查询（降级模式返回原查询）"""
+        if not chat_history or not self._llm_available():
+            return query
+
+        # 转换对话历史格式
+        messages = []
+        for msg in chat_history[-4:]:  # 只用最近4轮对话
+            if msg["role"] == "user":
+                messages.append(HumanMessage(content=msg["content"]))
+            else:
+                messages.append(AIMessage(content=msg["content"]))
+
+        chain = self.rewrite_prompt | self._get_llm() | StrOutputParser()
+        return chain.invoke({"query": query, "chat_history": messages})
+
+    def generate(self, query: str, context: str, chat_history: List[Dict[str, str]] = None,
+                 feedback: str = None) -> str:
+        """生成回答。无 LLM 可用时返回降级文案，仍把检索到的上下文透出。
+
+        feedback: 幻觉重试时传入纠偏提示，让 LLM 在相同的 context 下换一种更忠实的方式作答，
+        避免重试变成对同一输入的空转（仅靠随机采样）。
+        """
+        if not self._llm_available():
+            return (
+                "⚠️ 演示模式：未配置 GROQ_API_KEY，无法调用 LLM 生成回答。\n\n"
+                "已检索到相关上下文片段：\n" + (context or "（无）")[:600]
+            )
+
+        messages = []
+        if chat_history:
+            for msg in chat_history[-4:]:
+                if msg["role"] == "user":
+                    messages.append(HumanMessage(content=msg["content"]))
+                else:
+                    messages.append(AIMessage(content=msg["content"]))
+
+        if feedback:
+            messages.append(SystemMessage(
+                content="重要：上一版回答因与上下文不符被幻觉校验驳回，请重新作答。"
+                        f"纠偏要求：{feedback}。必须严格只使用【上下文信息】中的内容，"
+                        "不得推断上下文之外的细节，如果上下文没有相关内容就明确说明无法回答。"
+            ))
+
+        chain = self.rag_prompt | self._get_llm() | StrOutputParser()
+        return chain.invoke({
+            "query": query,
+            "context": context,
+            "chat_history": messages
+        })
+
+    def evaluate_confidence(self, query: str, context: str, answer: str) -> float:
+        """评估回答的置信度（无 LLM 时返回 0.5 兜底）"""
+        if not self._llm_available():
+            return 0.5
+
+        eval_prompt = ChatPromptTemplate.from_messages([
+            ("system", """评估以下回答的置信度。考虑：
+1. 回答是否基于提供的上下文
+2. 信息的相关性和准确性
+3. 回答的完整性
+
+只返回一个0到1之间的数字，表示置信度。"""),
+            ("human", """上下文：{context}
+
+问题：{query}
+
+回答：{answer}
+
+置信度（0-1）：""")
+        ])
+
+        chain = eval_prompt | self._get_llm() | StrOutputParser()
+        try:
+            score = float(chain.invoke({
+                "context": context,
+                "query": query,
+                "answer": answer
+            }).strip())
+            return min(max(score, 0.0), 1.0)
+        except Exception as e:
+            logger.warning("置信度评估异常，回退 0.5: %s", e)
+            return 0.5
+
+    def detect_hallucination(self, query: str, context: str, answer: str) -> bool:
+        """幻觉检测：LLM 判断回答是否与上下文冲突/编造内容。
+
+        Returns:
+            True = 存在幻觉（需重试生成）；False = 无幻觉。
+            异常时保守返回 False（不触发无谓重试）。
+        """
+        if not answer or not self._llm_available():
+            return False
+
+        chain = self.hallucination_prompt | self._get_llm() | StrOutputParser()
+        try:
+            raw = chain.invoke({"context": context, "query": query, "answer": answer})
+            text = raw.strip().lower()
+            # 解析 JSON 输出中的 is_hallucination 字段
+            return '"is_hallucination": true' in text or text.startswith("true")
+        except Exception as e:
+            logger.warning("幻觉检测调用失败，默认不重试: %s", e)
+            return False
+
+
+# ==================== RAG 链整合 ====================
+
+class RAGChain:
+    """RAG 链：整合所有组件的 LangGraph 状态流程
+
+    图结构（7 节点 + 条件边）：
+    START → process_query → multi_query_node → retrieve → rerank_node → generate → hallucination_check_node
+        ↓ 条件边
+    is_hallucination == True  → 跳回 generate 重新生成（最多 retry max_retry 次）
+    is_hallucination == False → evaluate → END
+    """
+
+    def __init__(self, config: RAGConfig = None):
+        self.config = config or RAGConfig()
+        self.processor = DocumentProcessor(self.config)
+        self.retriever = Retriever(self.processor.vector_store, self.config)
+        self.generator = Generator(self.config)
+        self.graph = None
+
+    def index_documents(self, texts: List[str], metadatas: Optional[List[Dict]] = None):
+        """索引文档（兼容文本列表；若传入的是文件路径列表则走 file_loader）"""
+        if texts and all(isinstance(p, str) and (p.endswith((".txt", ".md", ".pdf"))) for p in texts):
+            # 视为文件路径列表
+            chunk_count = self.processor.process_paths(texts)
+            logger.info("已从文件索引 %d 个文本块", chunk_count)
+        else:
+            self.processor.process(texts, metadatas)
+
+        # 重新关联 retriever 与最新的向量库（Chroma 模式下始终同一实例）
+        self.retriever = Retriever(self.processor.vector_store, self.config)
+        self._build_graph()
+
+    def _build_graph(self):
+        """构建 LangGraph 状态图（线性主链 + 幻觉条件边重试）"""
+
+        def _format_context_and_sources(docs: List[Document]) -> Dict[str, Any]:
+            """把文档列表格式化为 context 与 sources（retrieve/rerank 复用）"""
+            context_parts = []
+            sources = []
+            for i, doc in enumerate(docs):
+                context_parts.append(f"[文档 {i+1}] {doc.page_content}")
+                sources.append({
+                    "index": i + 1,
+                    "source": doc.metadata.get("source", "unknown"),
+                    "content_preview": doc.page_content[:100] + "..."
+                })
+            return {"context": "\n\n".join(context_parts), "sources": sources}
+
+        def process_query(state: RAGState) -> RAGState:
+            """处理查询：改写查询（如有对话历史）"""
+            query = state["query"]
+            chat_history = state.get("chat_history", [])
+
+            rewritten = query
+            if chat_history:
+                try:
+                    rewritten = self.generator.rewrite_query(query, chat_history)
+                    logger.info("查询改写：%s -> %s", query, rewritten)
+                except Exception as e:
+                    logger.warning("查询改写失败，使用原查询: %s", e)
+            state["query"] = rewritten
+            state["rewritten_query"] = rewritten
+            return state
+
+        def multi_query_node(state: RAGState) -> RAGState:
+            """Multi-Query 节点：生成多个角度的子查询（开关关闭时仅用原查询）"""
+            query = state["query"]
+            sub_queries = [query]
+            if self.config.enable_multi_query:
+                try:
+                    sub_queries = reranker_helper.multi_query_generate(
+                        query, self.generator.llm or self.generator._get_llm(),
+                        self.config.multi_query_num
+                    )
+                    logger.info("multi-query 子查询：%s", sub_queries)
+                except Exception as e:
+                    logger.warning("multi-query 生成失败，回退原查询: %s", e)
+                    sub_queries = [query]
+            state["sub_queries"] = sub_queries
+            return state
+
+        def retrieve_documents(state: RAGState) -> RAGState:
+            """检索相关文档：多查询开关开启时多路召回，否则单路"""
+            query = state["query"]
+            try:
+                if self.config.enable_multi_query:
+                    docs = self.retriever.retrieve_multi(state.get("sub_queries") or [query])
+                else:
+                    docs = self.retriever.retrieve(query)
+            except Exception as e:
+                logger.error("向量库检索异常，返回空结果: %s", e)
+                docs = []
+            logger.info("检索到 %d 个相关文档", len(docs))
+
+            state["documents"] = docs
+            formatted = _format_context_and_sources(docs)
+            state["context"] = formatted["context"]
+            state["sources"] = formatted["sources"]
+            return state
+
+        def rerank_node(state: RAGState) -> RAGState:
+            """Reranker 节点：对检索结果做 Cross-Encoder 重排序（失败时保持原顺序）"""
+            if self.config.enable_reranker and state.get("documents"):
+                try:
+                    docs = reranker_helper.rerank_documents(
+                        state["query"],
+                        state["documents"],
+                        self.config.top_k,
+                        self.config.reranker_model_name,
+                    )
+                    state["documents"] = docs
+                    # 重排打分明细（供前端调试面板）
+                    state["rerank_scores"] = [
+                        {
+                            "index": i + 1,
+                            "score": doc.metadata.get("rerank_score"),
+                            "source": doc.metadata.get("source", "unknown"),
+                        }
+                        for i, doc in enumerate(docs)
+                    ]
+                    formatted = _format_context_and_sources(docs)
+                    state["context"] = formatted["context"]
+                    state["sources"] = formatted["sources"]
+                    logger.info("重排完成，返回 top-%d：%s", len(docs), state["rerank_scores"])
+                except Exception as e:
+                    logger.warning("重排异常，使用原顺序: %s", e)
+            return state
+
+        def generate_answer(state: RAGState) -> RAGState:
+            """生成回答（LLM 异常时返回友好提示，保证流程不中断）。
+
+            幻觉重试时传入 feedback，让 LLM 在相同 context 下换一种更难幻觉的方式作答。
+            """
+            try:
+                state["answer"] = self.generator.generate(
+                    query=state["query"],
+                    context=state["context"],
+                    chat_history=state.get("chat_history", []),
+                    feedback=state.get("hallucination_feedback"),
+                )
+            except Exception as e:
+                logger.error("回答生成失败: %s", e)
+                state["answer"] = "抱歉，生成回答时发生错误，请稍后重试。"
+            logger.info("回答生成完成（第 %d 次尝试）", state.get("retry_count", 0) + 1)
+            return state
+
+        def hallucination_check_node(state: RAGState) -> RAGState:
+            """幻觉校验节点：判断回答是否存在幻觉；达到最大重试次数强制放行（防死循环）"""
+            retries = state.get("retry_count", 0)
+            if retries >= self.config.max_retry:
+                # 已达最大重试上限，强制放行：is_hallucination 置 False，避免无限循环
+                logger.warning("已达最大重试 %d 次，停止重试，放行回答", self.config.max_retry)
+                state["is_hallucination"] = False
+            else:
+                state["is_hallucination"] = self.generator.detect_hallucination(
+                    query=state["query"],
+                    context=state["context"],
+                    answer=state["answer"]
+                )
+                if state["is_hallucination"]:
+                    # 下次条件边会跳回 generate 重新生成
+                    state["retry_count"] = retries + 1
+                    # 给重试生成一段纠偏反馈，避免相同输入的空转重试
+                    state["hallucination_feedback"] = (
+                        f"上一版回答（第 {retries + 1} 次尝试）被判为幻觉/与上下文冲突。"
+                        "请重新生成：只引用【上下文信息】里明确出现的内容；"
+                        "上下文没有的依据不要编造；若确实回答不了就直说。"
+                    )
+                    logger.info(
+                        "检测到幻觉，准备第 %d/%d 次重试",
+                        retries + 1, self.config.max_retry
+                    )
+            return state
+
+        def evaluate_response(state: RAGState) -> RAGState:
+            """评估回答置信度"""
+            confidence = self.generator.evaluate_confidence(
+                query=state["query"],
+                context=state["context"],
+                answer=state["answer"]
+            )
+            state["confidence"] = confidence
+            logger.info("置信度评估：%.2f", confidence)
+            return state
+
+        # 构建图
+        graph = StateGraph(RAGState)
+
+        # 原有节点 + 新增节点
+        graph.add_node("process_query", process_query)
+        graph.add_node("multi_query_node", multi_query_node)
+        graph.add_node("retrieve", retrieve_documents)
+        graph.add_node("rerank_node", rerank_node)
+        graph.add_node("generate", generate_answer)
+        graph.add_node("hallucination_check_node", hallucination_check_node)
+        graph.add_node("evaluate", evaluate_response)
+
+        # 线性主链
+        graph.add_edge(START, "process_query")
+        graph.add_edge("process_query", "multi_query_node")
+        graph.add_edge("multi_query_node", "retrieve")
+        graph.add_edge("retrieve", "rerank_node")
+        graph.add_edge("rerank_node", "generate")
+        graph.add_edge("generate", "hallucination_check_node")
+
+        # 条件边：幻觉为真且未超上限 → 跳回 generate 重新生成；否则 → evaluate
+        def route_after_hallucination(state: RAGState) -> str:
+            return "generate" if state.get("is_hallucination") else "evaluate"
+
+        graph.add_conditional_edges(
+            "hallucination_check_node",
+            route_after_hallucination,
+            {"generate": "generate", "evaluate": "evaluate"},
+        )
+        graph.add_edge("evaluate", END)
+
+        self.graph = graph.compile()
+
+    def query(self, question: str, chat_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
+        """执行查询，返回回答 + 来源 + 置信度 + 调试信息"""
+        if not self.retriever:
+            raise ValueError("请先调用 index_documents() 索引文档")
+
+        logger.info("=%s=", "=" * 60)
+        logger.info("问题：%s", question)
+        logger.info("=%s=", "=" * 60)
+
+        initial_state = {
+            "query": question,
+            "chat_history": chat_history or [],
+            "documents": [],
+            "context": "",
+            "answer": "",
+            "sources": [],
+            "confidence": 0.0,
+            # 新增字段
+            "sub_queries": [],
+            "rerank_scores": [],
+            "is_hallucination": False,
+            "retry_count": 0,
+            "rewritten_query": question,
+            "hallucination_feedback": None,
+        }
+
+        result = self.graph.invoke(initial_state)
+
+        return {
+            "answer": result["answer"],
+            "sources": result["sources"],
+            "confidence": result["confidence"],
+            "sub_queries": result.get("sub_queries", []),
+            "rewritten_query": result.get("rewritten_query", question),
+            "rerank_scores": result.get("rerank_scores", []),
+        }
+
+
+# ==================== 示例数据 ====================
+
+SAMPLE_DOCUMENTS = [
+    {
+        "text": """LangChain 简介
+
+LangChain 是一个用于开发大型语言模型（LLM）应用的开源框架。它提供了一套标准化的接口和工具，
+帮助开发者快速构建基于 LLM 的应用程序。
+
+主要特点：
+1. 模块化设计：所有组件都可以独立使用或组合使用
+2. 链式调用：支持将多个组件链接在一起形成复杂的工作流
+3. 记忆管理：内置多种记忆类型，支持对话历史管理
+4. 工具集成：可以轻松集成外部工具和 API
+
+LangChain 1.0 于 2025 年 10 月发布，带来了重大改进：
+- 更清晰的 API 设计
+- 更好的类型提示支持
+- 改进的错误处理
+- 与 LangGraph 的深度集成
+
+使用场景包括：聊天机器人、问答系统、文档分析、代码生成等。""",
+        "metadata": {"source": "langchain_intro.txt", "topic": "introduction"}
+    },
+    {
+        "text": """LangGraph 介绍
+
+LangGraph 是 LangChain 生态系统中的一个重要组件，专门用于构建有状态的、多步骤的 AI 应用。
+它基于图结构来定义工作流，使得复杂的 AI 流程变得清晰和可控。
+
+核心概念：
+1. 状态（State）：使用 TypedDict 定义应用状态，在节点间传递
+2. 节点（Node）：处理状态的函数，执行具体的业务逻辑
+3. 边（Edge）：定义节点之间的连接和流转规则
+4. 条件边：根据状态动态决定下一个节点
+
+LangGraph 的优势：
+- 可视化流程：图结构使工作流一目了然
+- 状态管理：自动处理状态的传递和更新
+- 检查点：支持中间状态的保存和恢复
+- 人机协作：支持 human-in-the-loop 模式
+
+典型应用场景：
+- 多步骤推理
+- 多代理协作
+- 复杂决策流程
+- 带有循环的工作流""",
+        "metadata": {"source": "langgraph_intro.txt", "topic": "langgraph"}
+    },
+    {
+        "text": """RAG（检索增强生成）原理
+
+RAG 是一种结合检索和生成的技术，通过从知识库中检索相关信息来增强 LLM 的回答质量。
+
+工作流程：
+1. 文档处理：将文档分割成小块，并转换为向量表示
+2. 向量存储：将文档向量存入向量数据库
+3. 查询检索：用户提问时，检索最相关的文档块
+4. 上下文增强：将检索到的内容作为上下文提供给 LLM
+5. 回答生成：LLM 基于上下文生成准确的回答
+
+RAG 的优势：
+- 减少幻觉：基于真实文档生成回答
+- 知识更新：无需重新训练模型即可更新知识
+- 来源可追溯：可以引用具体的信息来源
+- 成本效益：比微调模型更经济
+
+最佳实践：
+- 选择合适的分块策略
+- 优化检索算法
+- 设计有效的提示模板
+- 实现结果重排序""",
+        "metadata": {"source": "rag_principles.txt", "topic": "rag"}
+    },
+    {
+        "text": """向量数据库介绍
+
+向量数据库是专门用于存储和检索向量数据的数据库系统，是 RAG 系统的核心组件之一。
+
+主要特点：
+1. 高效相似度搜索：支持快速的近似最近邻（ANN）搜索
+2. 可扩展性：能够处理数百万甚至数十亿级别的向量
+3. 实时更新：支持动态添加和删除向量
+4. 元数据过滤：支持基于元数据的过滤查询
+
+常见的向量数据库：
+- Chroma：轻量级，适合开发和原型
+- Pinecone：云原生，完全托管
+- Milvus：开源，高性能
+- Weaviate：支持混合搜索
+- FAISS：Facebook 开发，适合研究
+
+选择建议：
+- 开发阶段：使用 Chroma 或内存向量存储
+- 生产环境：根据规模选择 Pinecone 或 Milvus
+- 需要混合搜索：考虑 Weaviate
+
+性能优化：
+- 选择合适的索引类型
+- 调整搜索参数
+- 使用批量操作""",
+        "metadata": {"source": "vector_db.txt", "topic": "database"}
+    }
+]
+
+
+# ==================== 主程序 ====================
+
+def main():
+    """主程序：演示 RAG 系统的使用"""
+    logger.info("=%s=", "=" * 60)
+    logger.info("RAG 检索增强生成系统演示")
+    logger.info("=%s=", "=" * 60)
+
+    # 1. 初始化 RAG 系统
+    logger.info("初始化 RAG 系统...")
+    config_ = RAGConfig(
+        chunk_size=300,
+        chunk_overlap=50,
+        top_k=3
+    )
+    rag = RAGChain(config_)
+
+    # 2. 索引文档
+    logger.info("索引示例文档...")
+    texts = [doc["text"] for doc in SAMPLE_DOCUMENTS]
+    metadatas = [doc["metadata"] for doc in SAMPLE_DOCUMENTS]
+    rag.index_documents(texts, metadatas)
+
+    # 3. 单轮问答演示
+    logger.info("=%s=", "=" * 60)
+    logger.info("示例 1：单轮问答")
+    logger.info("=%s=", "=" * 60)
+
+    questions = [
+        "什么是 LangChain？它有什么特点？",
+        "RAG 系统的工作流程是怎样的？",
+        "有哪些常见的向量数据库？"
+    ]
+
+    for q in questions:
+        result = rag.query(q)
+        print(f"\n📌 回答：\n{result['answer']}")
+        print("\n📎 来源：")
+        for src in result['sources']:
+            print(f"   - [{src['index']}] {src['source']}")
+        print(f"\n📊 置信度：{result['confidence']:.2f}")
+        print("-" * 60)
+
+    # 4. 多轮对话演示
+    logger.info("=%s=", "=" * 60)
+    logger.info("示例 2：多轮对话（带上下文）")
+    logger.info("=%s=", "=" * 60)
+
+    chat_history = []
+
+    # 第一轮
+    q1 = "LangGraph 是什么？"
+    print(f"\n👤 用户：{q1}")
+    result1 = rag.query(q1, chat_history)
+    print(f"\n🤖 助手：{result1['answer']}")
+    chat_history.append({"role": "user", "content": q1})
+    chat_history.append({"role": "assistant", "content": result1['answer']})
+
+    # 第二轮（指代消解）
+    q2 = "它的核心概念有哪些？"
+    print(f"\n👤 用户：{q2}")
+    result2 = rag.query(q2, chat_history)
+    print(f"\n🤖 助手：{result2['answer']}")
+    chat_history.append({"role": "user", "content": q2})
+    chat_history.append({"role": "assistant", "content": result2['answer']})
+
+    # 第三轮
+    q3 = "在什么场景下使用它比较合适？"
+    print(f"\n👤 用户：{q3}")
+    result3 = rag.query(q3, chat_history)
+
+    logger.info("=%s=", "=" * 60)
+    logger.info("RAG 系统演示完成！")
+    logger.info("=%s=", "=" * 60)
+
+
+if __name__ == "__main__":
+    main()

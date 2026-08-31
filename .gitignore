@@ -1,0 +1,20 @@
+# 密钥与环境（绝不提交）
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# 运行时数据（Chroma 持久化目录 / SQLite / 临时目录）
+db/chroma_db/
+db/rag.db
+tmp/
+
+# 编辑器
+.vscode/
+.idea/
+
+# 其他
+.DS_Store
