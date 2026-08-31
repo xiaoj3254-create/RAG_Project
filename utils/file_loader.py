@@ -7,10 +7,11 @@ import os
 from pathlib import Path
 from typing import List, Optional, Union
 
+import config
 from langchain_core.documents import Document
 from utils.logger import setup_logger
 
-logger = setup_logger("file_loader")
+logger = setup_logger("file_loader", config.LOG_FILE)
 
 SUPPORTED_EXTS = {".txt", ".md", ".pdf"}
 _ENCODINGS = ("utf-8", "gbk", "latin-1")  # 中文文件优先 utf-8，失败回退 gbk

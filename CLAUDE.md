@@ -30,7 +30,7 @@ Streamlit Web前端 <--> FastAPI REST服务 <--> RAG核心模块(改造后的mai
 
 ```
 rag_qa_system/
-├── .env                      # 环境变量 GROQ_API_KEY, OPENAI_API_KEY, 路径配置
+├── .env                      # 环境变量 DEEPSEEK_API_KEY, OPENAI_API_KEY, 路径配置
 ├── Dockerfile                # 容器部署
 ├── requirements.txt          # 完整依赖列表
 ├── README.md                 # 项目文档：架构、功能、部署、优化点、实验说明

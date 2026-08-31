@@ -1,0 +1,154 @@
+2026-08-31 14:43:21 [INFO] sqlite: SQLite 初始化完成: ./db/rag.db
+2026-08-31 14:43:23 [INFO] rag: 使用 OpenAI Embeddings: BAAI/bge-m3
+2026-08-31 14:43:25 [INFO] rag: Chroma 向量库就绪: ./db/chroma_db
+2026-08-31 14:43:57 [WARNING] rag: Embedding 兼容性自检失败，跳过: Request timed out.
+2026-08-31 14:43:57 [INFO] rag: 加载文档...
+2026-08-31 14:43:57 [INFO] rag: 加载了 0 个文档
+2026-08-31 14:43:57 [INFO] rag: 分割文档...
+2026-08-31 14:43:57 [INFO] rag: 生成了 0 个文本块
+2026-08-31 14:43:57 [INFO] rag: 写入向量存储...
+2026-08-31 14:43:57 [INFO] rag: 向量存储更新完成
+2026-08-31 14:43:57 [INFO] api: RAG QA 服务已启动。接口文档: /docs
+2026-08-31 14:47:34 [INFO] rag: ==============================================================
+2026-08-31 14:47:34 [INFO] rag: 问题：我不太好
+2026-08-31 14:47:34 [INFO] rag: ==============================================================
+2026-08-31 14:47:56 [INFO] rag: 查询改写：我不太好 -> 我不太好，请给我一些建议。
+2026-08-31 14:49:47 [INFO] rag: multi-query 子查询：['我不太好，请给我一些建议。', '情绪低落时如何自我调节？', '感到不好时有哪些缓解压力和改善心情的方法？']
+2026-08-31 14:50:18 [ERROR] rag: 向量库检索异常，返回空结果: Request timed out.
+2026-08-31 14:50:18 [INFO] rag: 检索到 0 个相关文档
+2026-08-31 14:50:41 [INFO] rag: 回答生成完成（第 1 次尝试）
+2026-08-31 14:50:41 [WARNING] rag: 幻觉检测调用失败，默认不重试: 'Input to ChatPromptTemplate is missing variables {\'"is_hallucination"\'}.  Expected: [\'"is_hallucination"\', \'answer\', \'context\', \'query\'] Received: [\'context\', \'query\', \'answer\']\nNote: if you intended {"is_hallucination"} to be part of the string and not a variable, please escape it with double curly braces like: \'{{"is_hallucination"}}\'.\nFor troubleshooting, visit: https://docs.langchain.com/oss/python/langchain/errors/INVALID_PROMPT_INPUT '
+2026-08-31 14:51:22 [INFO] rag: 置信度评估：1.00
+2026-08-31 14:51:22 [INFO] rag: ==============================================================
+2026-08-31 14:51:22 [INFO] rag: 问题：刑法第二条
+2026-08-31 14:51:22 [INFO] rag: ==============================================================
+2026-08-31 14:52:24 [INFO] rag: 查询改写：刑法第二条 -> 《中华人民共和国刑法》第二条规定的内容是什么？
+2026-08-31 14:52:35 [INFO] rag: multi-query 子查询：['《中华人民共和国刑法》第二条规定的内容是什么？', '中华人民共和国刑法第二条全文', '刑法第二条 任务 规定内容']
+2026-08-31 14:53:07 [ERROR] rag: 向量库检索异常，返回空结果: Request timed out.
+2026-08-31 14:53:07 [INFO] rag: 检索到 0 个相关文档
+2026-08-31 14:53:37 [INFO] rag: 回答生成完成（第 1 次尝试）
+2026-08-31 14:53:37 [WARNING] rag: 幻觉检测调用失败，默认不重试: 'Input to ChatPromptTemplate is missing variables {\'"is_hallucination"\'}.  Expected: [\'"is_hallucination"\', \'answer\', \'context\', \'query\'] Received: [\'context\', \'query\', \'answer\']\nNote: if you intended {"is_hallucination"} to be part of the string and not a variable, please escape it with double curly braces like: \'{{"is_hallucination"}}\'.\nFor troubleshooting, visit: https://docs.langchain.com/oss/python/langchain/errors/INVALID_PROMPT_INPUT '
+2026-08-31 14:55:03 [INFO] rag: 置信度评估：1.00
+2026-08-31 15:13:32 [INFO] sqlite: SQLite 初始化完成: ./db/rag.db
+2026-08-31 15:13:34 [INFO] rag: 使用 OpenAI Embeddings: BAAI/bge-m3
+2026-08-31 15:13:35 [INFO] rag: Chroma 向量库就绪: ./db/chroma_db
+2026-08-31 15:14:06 [WARNING] rag: Embedding 兼容性自检失败，跳过: Request timed out.
+2026-08-31 15:14:06 [INFO] rag: 加载文档...
+2026-08-31 15:14:06 [INFO] rag: 加载了 0 个文档
+2026-08-31 15:14:06 [INFO] rag: 分割文档...
+2026-08-31 15:14:06 [INFO] rag: 生成了 0 个文本块
+2026-08-31 15:14:06 [INFO] rag: 写入向量存储...
+2026-08-31 15:14:06 [INFO] rag: 向量存储更新完成
+2026-08-31 15:14:06 [INFO] api: RAG QA 服务已启动。接口文档: /docs
+2026-08-31 15:20:51 [INFO] sqlite: SQLite 初始化完成: ./db/rag.db
+2026-08-31 15:20:52 [INFO] rag: 使用 OpenAI Embeddings: BAAI/bge-m3
+2026-08-31 15:20:53 [INFO] rag: Chroma 向量库就绪: ./db/chroma_db
+2026-08-31 15:21:24 [WARNING] rag: Embedding 兼容性自检失败，跳过: Request timed out.
+2026-08-31 15:21:24 [INFO] rag: 加载文档...
+2026-08-31 15:21:24 [INFO] rag: 加载了 0 个文档
+2026-08-31 15:21:24 [INFO] rag: 分割文档...
+2026-08-31 15:21:24 [INFO] rag: 生成了 0 个文本块
+2026-08-31 15:21:24 [INFO] rag: 写入向量存储...
+2026-08-31 15:21:24 [INFO] rag: 向量存储更新完成
+2026-08-31 15:21:24 [INFO] api: RAG QA 服务已启动。接口文档: /docs
+2026-08-31 15:21:26 [INFO] sqlite: SQLite 初始化完成: ./db/rag.db
+2026-08-31 15:21:27 [INFO] rag: 使用 OpenAI Embeddings: BAAI/bge-m3（base: https://api.siliconflow.cn/v1）
+2026-08-31 15:21:28 [INFO] rag: Chroma 向量库就绪: ./db/chroma_db
+2026-08-31 15:21:29 [ERROR] rag: ⚠️ Embedding 维度不兼容：库中已有的向量维度为 384，当前 Embedding 生成 1024 维。这是简单Embedding与OpenAI Embedding切换导致的。为防止检索静默失效，已清空 collection 'rag_docs'，请重新上传文档建立索引。
+2026-08-31 15:21:29 [WARNING] rag: 已清空旧向量 26 条，collection 将用新维度重新索引。
+2026-08-31 15:21:29 [INFO] rag: 加载文档...
+2026-08-31 15:21:29 [INFO] rag: 加载了 0 个文档
+2026-08-31 15:21:29 [INFO] rag: 分割文档...
+2026-08-31 15:21:29 [INFO] rag: 生成了 0 个文本块
+2026-08-31 15:21:29 [INFO] rag: 写入向量存储...
+2026-08-31 15:21:29 [INFO] rag: 向量存储更新完成
+2026-08-31 15:21:29 [INFO] api: RAG QA 服务已启动。接口文档: /docs
+2026-08-31 15:21:30 [INFO] sqlite: SQLite 初始化完成: ./db/rag.db
+2026-08-31 15:21:31 [INFO] rag: 使用 OpenAI Embeddings: BAAI/bge-m3（base: https://api.siliconflow.cn/v1）
+2026-08-31 15:21:32 [INFO] rag: Chroma 向量库就绪: ./db/chroma_db
+2026-08-31 15:21:32 [INFO] rag: 加载文档...
+2026-08-31 15:21:32 [INFO] rag: 加载了 0 个文档
+2026-08-31 15:21:32 [INFO] rag: 分割文档...
+2026-08-31 15:21:32 [INFO] rag: 生成了 0 个文本块
+2026-08-31 15:21:32 [INFO] rag: 写入向量存储...
+2026-08-31 15:21:32 [INFO] rag: 向量存储更新完成
+2026-08-31 15:21:32 [INFO] api: RAG QA 服务已启动。接口文档: /docs
+2026-08-31 15:29:09 [INFO] rag: ==============================================================
+2026-08-31 15:29:09 [INFO] rag: 问题：你好
+2026-08-31 15:29:09 [INFO] rag: ==============================================================
+2026-08-31 15:32:07 [INFO] rag: 查询改写：你好 -> 你好
+2026-08-31 15:32:11 [INFO] rag: multi-query 子查询：['你好', '你好用英语怎么说', '不同语言中的问候语']
+2026-08-31 15:32:12 [ERROR] rag: 向量库检索异常，返回空结果: Collection expecting embedding with dimension of 384, got 1024
+2026-08-31 15:32:12 [INFO] rag: 检索到 0 个相关文档
+2026-08-31 15:33:06 [INFO] rag: 回答生成完成（第 1 次尝试）
+2026-08-31 15:33:29 [INFO] sqlite: 创建会话: 22d38274a00d4971ac9c6fde40a11d8c (验证会话)
+2026-08-31 15:34:08 [INFO] rag: 检测到幻觉，准备第 1/2 次重试
+2026-08-31 15:34:16 [INFO] rag: 回答生成完成（第 2 次尝试）
+2026-08-31 15:34:49 [INFO] rag: 检测到幻觉，准备第 2/2 次重试
+2026-08-31 15:36:45 [INFO] rag: 回答生成完成（第 3 次尝试）
+2026-08-31 15:36:45 [WARNING] rag: 已达最大重试 2 次，停止重试，放行回答
+2026-08-31 15:36:48 [INFO] rag: 置信度评估：0.20
+2026-08-31 15:36:48 [INFO] rag: ==============================================================
+2026-08-31 15:36:48 [INFO] rag: 问题：刑法第二条规定了什么？
+2026-08-31 15:36:48 [INFO] rag: ==============================================================
+2026-08-31 15:36:59 [INFO] rag: multi-query 子查询：['刑法第二条规定了什么？', '刑法第二条 全文内容', '刑法第二条 规定 任务']
+2026-08-31 15:37:00 [ERROR] rag: 向量库检索异常，返回空结果: Collection expecting embedding with dimension of 384, got 1024
+2026-08-31 15:37:00 [INFO] rag: 检索到 0 个相关文档
+2026-08-31 15:37:21 [INFO] rag: 回答生成完成（第 1 次尝试）
+2026-08-31 15:38:02 [INFO] rag: 置信度评估：0.50
+2026-08-31 15:56:35 [INFO] sqlite: SQLite 初始化完成: ./db/rag.db
+2026-08-31 15:56:37 [INFO] rag: 使用 OpenAI Embeddings: BAAI/bge-m3（base: https://api.siliconflow.cn/v1）
+2026-08-31 15:56:38 [INFO] rag: Chroma 向量库就绪: ./db/chroma_db
+2026-08-31 15:56:38 [INFO] rag: 加载文档...
+2026-08-31 15:56:38 [INFO] rag: 加载了 0 个文档
+2026-08-31 15:56:38 [INFO] rag: 分割文档...
+2026-08-31 15:56:38 [INFO] rag: 生成了 0 个文本块
+2026-08-31 15:56:38 [INFO] rag: 写入向量存储...
+2026-08-31 15:56:38 [INFO] rag: 向量存储更新完成
+2026-08-31 15:56:38 [INFO] api: RAG QA 服务已启动。接口文档: /docs
+2026-08-31 15:57:34 [INFO] sqlite: 记录上传文档: test_rag.txt (chunks=1)
+2026-08-31 15:58:49 [INFO] rag: ==============================================================
+2026-08-31 15:58:49 [INFO] rag: 问题：RAG系统包含哪四个步骤？
+2026-08-31 15:58:49 [INFO] rag: ==============================================================
+2026-08-31 15:59:28 [INFO] rag: 查询改写：RAG系统包含哪四个步骤？ -> RAG系统包含哪四个步骤？
+2026-08-31 15:59:36 [INFO] rag: multi-query 子查询：['RAG系统包含哪四个步骤？', 'RAG系统的完整流程是什么', '检索增强生成的工作步骤']
+2026-08-31 15:59:37 [INFO] rag: 检索到 1 个相关文档
+2026-08-31 15:59:37 [WARNING] reranker: sentence-transformers 未安装或加载失败，跳过重排: No module named 'sentence_transformers'
+2026-08-31 15:59:37 [INFO] rag: 重排完成，返回 top-1：[{'index': 1, 'score': None, 'source': '92cba9ec_test_rag.txt'}]
+2026-08-31 15:59:49 [INFO] rag: 回答生成完成（第 1 次尝试）
+2026-08-31 16:00:12 [WARNING] rag: 置信度评估异常，回退 0.5: could not convert string to float: '1</think>1'
+2026-08-31 16:00:12 [INFO] rag: 置信度评估：0.50
+2026-08-31 16:22:27 [INFO] sqlite: SQLite 初始化完成: ./db/rag.db
+2026-08-31 16:22:28 [INFO] rag: 使用 OpenAI Embeddings: BAAI/bge-m3（base: https://api.siliconflow.cn/v1）
+2026-08-31 16:22:29 [INFO] rag: Chroma 向量库就绪: ./db/chroma_db
+2026-08-31 16:24:20 [INFO] sqlite: SQLite 初始化完成: ./db/rag.db
+2026-08-31 16:24:21 [INFO] rag: 使用 OpenAI Embeddings: BAAI/bge-m3（base: https://api.siliconflow.cn/v1）
+2026-08-31 16:24:21 [INFO] rag: Chroma 向量库就绪: ./db/chroma_db
+2026-08-31 16:24:22 [INFO] rag: 加载文档...
+2026-08-31 16:24:22 [INFO] rag: 加载了 0 个文档
+2026-08-31 16:24:22 [INFO] rag: 分割文档...
+2026-08-31 16:24:22 [INFO] rag: 生成了 0 个文本块
+2026-08-31 16:24:22 [INFO] rag: 写入向量存储...
+2026-08-31 16:24:22 [INFO] rag: 向量存储更新完成
+2026-08-31 16:24:22 [INFO] api: RAG QA 服务已启动。接口文档: /docs
+2026-08-31 16:25:28 [INFO] rag: ==============================================================
+2026-08-31 16:25:28 [INFO] rag: 问题：刑法第二条的完整内容是什么？
+2026-08-31 16:25:28 [INFO] rag: ==============================================================
+2026-08-31 16:25:43 [INFO] rag: 查询改写：刑法第二条的完整内容是什么？ -> 刑法第二条的完整内容是什么？
+2026-08-31 16:25:53 [INFO] rag: multi-query 子查询：['刑法第二条的完整内容是什么？', '中华人民共和国刑法第二条全文', '刑法第二条 任务 规定内容']
+2026-08-31 16:25:54 [INFO] rag: 检索到 1 个相关文档
+2026-08-31 16:25:54 [WARNING] reranker: sentence-transformers 未安装或加载失败，跳过重排: No module named 'sentence_transformers'
+2026-08-31 16:25:54 [INFO] rag: 重排完成，返回 top-1：[{'index': 1, 'score': None, 'source': '92cba9ec_test_rag.txt'}]
+2026-08-31 16:26:06 [INFO] rag: 回答生成完成（第 1 次尝试）
+2026-08-31 16:26:36 [INFO] rag: 置信度评估：1.00
+2026-08-31 16:27:55 [INFO] sqlite: 记录上传文档: 中华人民共和国刑法（2023年修正）.pdf (chunks=211)
+2026-08-31 16:28:54 [INFO] rag: ==============================================================
+2026-08-31 16:28:54 [INFO] rag: 问题：刑法第二条的完整内容是什么
+2026-08-31 16:28:54 [INFO] rag: ==============================================================
+2026-08-31 16:29:06 [INFO] rag: 查询改写：刑法第二条的完整内容是什么 -> 中华人民共和国刑法第二条的完整内容是什么？
+2026-08-31 16:29:20 [INFO] rag: multi-query 子查询：['中华人民共和国刑法第二条的完整内容是什么？', '中华人民共和国刑法第二条条文原文', '刑法第二条规定了什么内容']
+2026-08-31 16:29:21 [INFO] rag: 检索到 6 个相关文档
+2026-08-31 16:29:21 [WARNING] reranker: sentence-transformers 未安装或加载失败，跳过重排: No module named 'sentence_transformers'
+2026-08-31 16:29:21 [INFO] rag: 重排完成，返回 top-3：[{'index': 1, 'score': None, 'source': 'eab62b53_中华人民共和国刑法（2023年修正）.pdf'}, {'index': 2, 'score': None, 'source': '92cba9ec_test_rag.txt'}, {'index': 3, 'score': None, 'source': 'eab62b53_中华人民共和国刑法（2023年修正）.pdf'}]
+2026-08-31 16:29:23 [INFO] rag: 回答生成完成（第 1 次尝试）
+2026-08-31 16:29:41 [INFO] rag: 置信度评估：1.00

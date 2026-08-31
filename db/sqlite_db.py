@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 import config
 from utils.logger import setup_logger
 
-logger = setup_logger("sqlite")
+logger = setup_logger("sqlite", config.LOG_FILE)
 
 
 def _connect() -> sqlite3.Connection:

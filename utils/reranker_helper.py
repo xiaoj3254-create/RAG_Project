@@ -8,10 +8,11 @@
 """
 from typing import List
 
+import config
 from langchain_core.documents import Document
 from utils.logger import setup_logger
 
-logger = setup_logger("reranker")
+logger = setup_logger("reranker", config.LOG_FILE)
 
 
 def multi_query_generate(original_query: str, llm, num_queries: int = 3) -> List[str]:

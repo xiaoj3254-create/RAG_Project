@@ -16,6 +16,7 @@ load_dotenv(ROOT_DIR / ".env")
 # ----------------------------------------------------------------------
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", str(ROOT_DIR / "db" / "chroma_db"))
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", str(ROOT_DIR / "db" / "rag.db"))
+LOG_FILE = os.getenv("LOG_FILE", str(ROOT_DIR / "logs" / "rag.log"))  # 日志落盘路径
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))  # 上传文件大小限制(MB)
 
 # ----------------------------------------------------------------------
@@ -31,8 +32,8 @@ MAX_TOKENS = int(os.getenv("MAX_TOKENS", "1000"))
 # ----------------------------------------------------------------------
 # 模型名
 # ----------------------------------------------------------------------
-GROQ_MODEL = os.getenv("GROQ_MODEL", "groq:llama-3.3-70b-versatile")
-OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-ai/DeepSeek-V4-Flash")
+OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "BAAI/bge-m3")
 RERANKER_MODEL_NAME = os.getenv(
     "RERANKER_MODEL_NAME", "cross-encoder/ms-marco-MiniLM-L-6-v2"
 )
@@ -41,7 +42,9 @@ MULTI_QUERY_NUM = int(os.getenv("MULTI_QUERY_NUM", "3"))  # 多查询生成的�
 # ----------------------------------------------------------------------
 # API 密钥
 # ----------------------------------------------------------------------
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+# LLM / Embedding 统一走硅基流动（SiliconFlow）；其他平台改此值即可
+OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.siliconflow.cn/v1")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # ----------------------------------------------------------------------

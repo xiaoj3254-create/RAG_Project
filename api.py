@@ -23,7 +23,7 @@ from utils import file_loader
 from db import sqlite_db
 from main import RAGChain, RAGConfig, Retriever
 
-logger = setup_logger("api")
+logger = setup_logger("api", config.LOG_FILE)
 
 app = FastAPI(title="RAG QA System", version="1.0.0")
 

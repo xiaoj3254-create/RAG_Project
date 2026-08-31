@@ -1,4 +1,4 @@
-# RAG 检索增强生成问答系统（前后端分离 · 可 Docker 部署）
+ # RAG 检索增强生成问答系统（前后端分离 · 可 Docker 部署）
 
 > 大模型应用方向 · 秋招主力完整项目
 > 基于 LangChain + LangGraph 的云端 RAG 问答系统：Streamlit 前端 + FastAPI 后端 + Chroma 持久化向量库 + SQLite 会话元数据。
@@ -77,7 +77,7 @@ copy .env.example .env # Windows
 
 关键配置项：
 ```ini
-GROQ_API_KEY=your_groq_api_key_here      # 必填才可生成真实回答
+DEEPSEEK_API_KEY=your_DEEPSEEK_API_KEY_here      # 必填才可生成真实回答
 OPENAI_API_KEY=your_openai_api_key_here  # 必填才可使用高质量 Embedding
 CHUNK_SIZE=500         # 分块大小
 CHUNK_OVERLAP=100      # 分块重叠
@@ -103,7 +103,7 @@ streamlit run frontend.py --server.port 8501
 
 浏览器访问 `http://localhost:8501`（前端）、`http://localhost:8000/docs`（接口文档）。
 
-控制台演示（不启动服务）：`python main.py`
+> `main.py` 为 RAG 核心模块（被 api.py 引用），无独立入口；如需在本地以脚本方式自测，可写独立脚本 `from main import RAGChain, RAGConfig` 后调用。
 
 ### 4.3 Docker 部署
 
