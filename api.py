@@ -36,12 +36,15 @@ _config_lock = threading.Lock()  # 保护临时覆盖运行配置，避免并发
 
 
 def get_rag() -> RAGChain:
+    """返回全局单例 RAGChain；首次调用时加锁构造，避免并发首请求各自 new 一个实例并互相覆写。"""
     global _rag
     if _rag is None:
-        cfg = RAGConfig()
-        _rag = RAGChain(cfg)
-        # 用空列表建图（后续通过上传实时追加；Chroma 会加载已有持久化数据）
-        _rag.index_documents([])
+        with _config_lock:
+            if _rag is None:  # 双检锁：锁内再次判空，防止重复构造
+                cfg = RAGConfig()
+                _rag = RAGChain(cfg)
+                # 用空列表建图（后续通过上传实时追加；Chroma 会加载已有持久化数据）
+                _rag.index_documents([])
     return _rag
 
 

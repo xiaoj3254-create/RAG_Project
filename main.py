@@ -17,6 +17,7 @@ RAG 检索增强生成系统 - 完整实现（秋招升级版）
 - 降级模式下仍可跑通检索、来源、子查询、重排、幻觉校验全流程
 """
 
+import re
 from typing import List, Dict, Any, Optional, TypedDict, Literal
 from dataclasses import dataclass
 
@@ -244,14 +245,25 @@ class DocumentProcessor:
 
             logger.error(
                 "⚠️ Embedding 维度不兼容：库中已有的向量维度为 %d，当前 Embedding 生成 %d 维。"
-                "这是简单Embedding与OpenAI Embedding切换导致的。为防止检索静默失效，"
-                "已清空 collection 'rag_docs'，请重新上传文档建立索引。",
+                "这是简单Embedding与OpenAI Embedding切换导致的。仅删除向量无法生效，"
+                "因为 collection 的 HNSW 维度元数据仍停留在旧维度；这里直接删除并重建 collection，"
+                "请重新上传文档以新维度建立索引。",
                 stored_dim, current_dim,
             )
-            ids = store.get(include=[])["ids"]
-            for i in range(0, len(ids), 1000):
-                store.delete(ids=ids[i:i + 1000])
-            logger.warning("已清空旧向量 %d 条，collection 将用新维度重新索引。", len(ids))
+            # 仅 store.delete(ids) 不足：chromadb 的 collection 维度元数据不会随之更新，
+            # 检索仍会报“expecting embedding with dimension of X”。必须 drop 后重建。
+            store._client.delete_collection(store._name)  # type: ignore[attr-defined]
+            from langchain_chroma import Chroma
+            # 重建空 collection，让实例句柄指向新集合（旧的 _collection 已失效）
+            self.vector_store = Chroma(
+                collection_name="rag_docs",
+                embedding_function=self.embeddings,
+                persist_directory=config.CHROMA_DB_PATH,
+            )
+            logger.warning(
+                "已重建 collection 'rag_docs'（旧维度 %d → 新维度 %d），请重新上传文档建立索引。",
+                stored_dim, current_dim,
+            )
         except Exception as e:
             logger.warning("Embedding 兼容性自检失败，跳过: %s", e)
 
@@ -484,11 +496,16 @@ class Generator:
 
         chain = eval_prompt | self._get_llm() | StrOutputParser()
         try:
-            score = float(chain.invoke({
+            raw = chain.invoke({
                 "context": context,
                 "query": query,
                 "answer": answer
-            }).strip())
+            })
+            # DeepSeek V4 等推理模型会在正式输出前附 <reasoning>/思考块，
+            # float("1</…>1") 会抛异常导致恒回退 0.5；先剥离标记再按正则提取数字。
+            clean = re.sub(r"<[/]?[^>]+>", "", raw)
+            match = re.search(r"\d+(?:\.\d+)?", clean)
+            score = float(match.group()) if match else 0.0
             return min(max(score, 0.0), 1.0)
         except Exception as e:
             logger.warning("置信度评估异常，回退 0.5: %s", e)

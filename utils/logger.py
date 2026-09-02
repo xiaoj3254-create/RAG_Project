@@ -25,10 +25,8 @@ def setup_logger(name: str = "rag", log_file: str = None, level: int = logging.I
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Windows 控制台默认 GBK，emoji/中文混合时编码会抛 UnicodeEncodeError。
-    # errors="replace" 兜底，保证日志不因字符集问题中断服务链路。
-    # Windows 控制台默认 GBK，中文/emoji 无法编码会抛 UnicodeEncodeError
-    # 并让 uvicorn 等服务的中文日志炸栈。把 stdout/stderr 强制重配置为 UTF-8 兜底。
+    # Windows 控制台默认 GBK，中文/emoji 无法编码会抛 UnicodeEncodeError，
+    # 导致 uvicorn 等服务的中文日志炸栈。强制把 stdout/stderr 重配置为 UTF-8 兜底。
     if sys.platform == "win32":
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):

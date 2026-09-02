@@ -7,9 +7,12 @@ __pycache__/
 venv/
 .venv/
 
-# 运行时数据（Chroma 持久化目录 / SQLite / 临时目录）
+# 运行时数据（Chroma 持久化目录 / SQLite / 临时目录 / 日志）
 db/chroma_db/
 db/rag.db
+db/rag.db-wal
+db/rag.db-shm
+logs/
 tmp/
 
 # 编辑器
