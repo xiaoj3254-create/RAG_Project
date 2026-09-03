@@ -227,12 +227,12 @@ class DocumentProcessor:
         这里显式检测并在日志中大声警告；同时清空该 collection，让新上传的文档
         以新维度重建索引（向量只是派生数据，源文档仍在，重新上传即可恢复）。
         """
-        store = getattr(self.vector_store, "_collection", None)
+        store = getattr(self.vector_store, "_collection", None)  # _collection 是 chromadb.Collection 对象
         if store is None:
             return  # 内存向量库无持久化数据，跳过
 
         try:
-            if store.count() == 0:
+            if store.count() == 0:  # count() 返回集合里面文档总条数
                 return
             existing = store.get(include=["embeddings"], limit=1)["embeddings"]
             # existing 可能是 numpy 数组或列表，len() 才是安全的判空（不该对数组做布尔求值）
@@ -357,10 +357,15 @@ class Retriever:
 
     def retrieve_with_scores(self, query: str) -> List[tuple]:
         """检索文档并返回相似度分数"""
-        return self.vector_store.similarity_search_with_score(
+        return self.vector_store.similarity_search_with_score(  # 返回 `List[ (Document, score) ]` **元组列表**
             query=query,
             k=self.config.top_k
         )
+
+            ## 小坑点
+            # 1. `retrieve_multi` 的去重是**精确文本匹配**，文本差一个字符就判定为不同文档，无法做模糊去重。
+            # 2. `similarity_search_with_score` 返回的 score，Chroma 是**距离值，不是相似度 (0~1)**，不要直接当做相似度概率判断。
+            # 3. 提前 break 是跳出外层`for q in queries`循环，不再处理剩下的子查询，减少向量库请求。
 
 
 # ==================== 生成模块 ====================
@@ -553,7 +558,7 @@ class RAGChain:
 
     def index_documents(self, texts: List[str], metadatas: Optional[List[Dict]] = None):
         """索引文档（兼容文本列表；若传入的是文件路径列表则走 file_loader）"""
-        if texts and all(isinstance(p, str) and (p.endswith((".txt", ".md", ".pdf"))) for p in texts):
+        if texts and all(isinstance(p, str) and (p.endswith((".txt", ".md", ".pdf", ".json", ".csv"))) for p in texts):
             # 视为文件路径列表
             chunk_count = self.processor.process_paths(texts)
             logger.info("已从文件索引 %d 个文本块", chunk_count)
@@ -788,7 +793,3 @@ class RAGChain:
         }
 
 
-# ==================== 主程序 ====================
-
-# 注意：生产启用链路为 FastAPI(api.py) + Streamlit(frontend.py)。
-# 无独立入口；演示/自测请通过 api.py 或写独立脚本 import RAGChain。
